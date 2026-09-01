@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+.env
+*.log
+storage/*.db
+storage/*.db-journal
+storage/browser-profiles/
+screenshots/*
+!screenshots/.gitkeep
+storage/downloads/*
+storage/uploads/*
+.DS_Store
+coverage/

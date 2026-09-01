@@ -1,0 +1,250 @@
+// FlowPilot database schema — canonical, human-readable reference for the
+// data model. The running application does NOT use Prisma Client at
+// runtime: it talks to SQLite directly through Node's built-in node:sqlite
+// module (see apps/server/src/db/sqlite.ts), so `npm install` never needs
+// network access to Prisma's engine-binary CDN. The tables/columns there
+// are kept in exact sync with this file by hand. To move to PostgreSQL
+// later, swap `provider` below to "postgresql", point DATABASE_URL at your
+// instance, and either re-adopt `prisma generate`/`@prisma/client` or port
+// the same table shapes to your driver of choice.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  passwordSalt String
+  name         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  ownedWorkspaces Workspace[]
+
+  @@map("users")
+}
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  ownerId   String
+  createdAt DateTime @default(now())
+
+  owner       User             @relation(fields: [ownerId], references: [id])
+  workflows   Workflow[]
+  credentials Credential[]
+  profiles    BrowserProfile[]
+  executions  Execution[]
+  schedules   Schedule[]
+  templates   Template[]
+  files       FileRecord[]
+  variables   Variable[]
+  connectors  Connector[]
+
+  @@map("workspaces")
+}
+
+model Workflow {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  name          String
+  description   String   @default("")
+  schemaVersion String   @default("1.0")
+  triggerType   String   @default("manual")
+  triggerConfig String   @default("{}")
+  variables     String   @default("[]")
+  nodes         String   @default("[]")
+  edges         String   @default("[]")
+  browserConfig String   @default("{}")
+  isActive      Boolean  @default(true)
+  currentVersion Int     @default(1)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workspace  Workspace         @relation(fields: [workspaceId], references: [id])
+  versions   WorkflowVersion[]
+  executions Execution[]
+  schedules  Schedule[]
+
+  @@index([workspaceId])
+  @@map("workflows")
+}
+
+model WorkflowVersion {
+  id         String   @id @default(cuid())
+  workflowId String
+  version    Int
+  label      String   @default("")
+  snapshot   String
+  createdAt  DateTime @default(now())
+
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@unique([workflowId, version])
+  @@map("workflow_versions")
+}
+
+model Credential {
+  id               String   @id @default(cuid())
+  workspaceId      String
+  name             String
+  type             String
+  encryptedSecret  String
+  fieldNames       String   @default("[]")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId])
+  @@map("credentials")
+}
+
+model BrowserProfile {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  name         String
+  dirName      String    @unique
+  createdAt    DateTime  @default(now())
+  lastUsedAt   DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId])
+  @@map("browser_profiles")
+}
+
+model Execution {
+  id                String    @id @default(cuid())
+  workflowId        String
+  workspaceId       String
+  status            String    @default("QUEUED")
+  triggeredBy       String    @default("manual")
+  startedAt         DateTime  @default(now())
+  finishedAt        DateTime?
+  durationMs        Int?
+  error             String?
+  currentNodeId     String?
+  variablesSnapshot String    @default("{}")
+
+  workflow Workflow       @relation(fields: [workflowId], references: [id])
+  workspace Workspace     @relation(fields: [workspaceId], references: [id])
+  logs     ExecutionLog[]
+  files    FileRecord[]
+
+  @@index([workflowId])
+  @@index([workspaceId])
+  @@map("executions")
+}
+
+model ExecutionLog {
+  id          String   @id @default(cuid())
+  executionId String
+  nodeId      String?
+  nodeLabel   String?
+  level       String   @default("info")
+  message     String
+  status      String?
+  data        String?
+  timestamp   DateTime @default(now())
+
+  execution Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([executionId])
+  @@map("execution_logs")
+}
+
+model Schedule {
+  id              String    @id @default(cuid())
+  workflowId      String
+  workspaceId     String
+  frequency       String
+  time            String    @default("09:00")
+  timezone        String    @default("Asia/Kolkata")
+  daysOfWeek      String    @default("[]")
+  dayOfMonth      Int?
+  intervalMinutes Int?
+  cron            String?
+  runOnceAt       DateTime?
+  enabled         Boolean   @default(true)
+  nextRunAt       DateTime?
+  lastRunAt       DateTime?
+  lastRunStatus   String?
+  createdAt       DateTime  @default(now())
+
+  workflow  Workflow  @relation(fields: [workflowId], references: [id])
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workflowId])
+  @@map("schedules")
+}
+
+model Template {
+  id           String   @id @default(cuid())
+  workspaceId  String?
+  name         String
+  description  String   @default("")
+  category     String   @default("general")
+  workflowJson String
+  isBuiltIn    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id])
+
+  @@map("templates")
+}
+
+model FileRecord {
+  id          String   @id @default(cuid())
+  workspaceId String
+  executionId String?
+  kind        String
+  fileName    String
+  filePath    String
+  sizeBytes   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  workspace Workspace  @relation(fields: [workspaceId], references: [id])
+  execution Execution? @relation(fields: [executionId], references: [id])
+
+  @@index([workspaceId])
+  @@index([executionId])
+  @@map("file_records")
+}
+
+model Variable {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  name         String
+  type         String   @default("string")
+  defaultValue String?
+  sensitive    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@unique([workspaceId, name])
+  @@map("variables")
+}
+
+model Connector {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  type         String
+  name         String
+  config       String   @default("{}")
+  credentialId String?
+  createdAt    DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId])
+  @@map("connectors")
+}
